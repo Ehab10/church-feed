@@ -42,7 +42,6 @@ jobs:
           mkdir -p dist/images
           cp feed.xml dist/feed.xml
           if [ -d posts/images ]; then cp -r posts/images/. dist/images/; fi
-          if [ -d post-pages ]; then mkdir -p dist/p && cp -r post-pages/. dist/p/; fi
           mkdir -p dist/admin
           cp admin/index.html dist/admin/index.html
 
