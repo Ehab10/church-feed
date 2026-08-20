@@ -310,13 +310,32 @@
     });
   }
 
+  async function getFileSha(path){
+    const { owner, repo, branch, token } = getSettings();
+    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${encodeURIComponent(branch)}`;
+    const res = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github+json',
+      },
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.message || `GitHub API error (${res.status})`);
+    }
+    const data = await res.json();
+    return data.sha || null;
+  }
+
   async function githubPut(path, base64Content, message){
-    const { owner, repo, branch } = getSettings();
+    const { owner, repo, branch, token } = getSettings();
     const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+    const sha = await getFileSha(path);
     const res = await fetch(url, {
       method: 'PUT',
       headers: {
-        'Authorization': `Bearer ${getSettings().token}`,
+        'Authorization': `Bearer ${token}`,
         'Accept': 'application/vnd.github+json',
         'Content-Type': 'application/json',
       },
@@ -324,6 +343,7 @@
         message,
         content: base64Content,
         branch,
+        ...(sha ? { sha } : {}),
       }),
     });
     if (!res.ok) {
