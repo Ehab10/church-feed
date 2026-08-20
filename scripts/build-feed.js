@@ -9,9 +9,10 @@ const { marked } = require("marked");
 
 const POSTS_DIR = path.join(__dirname, "..", "posts");
 const OUTPUT_FILE = path.join(__dirname, "..", "feed.xml");
+const POST_PAGES_DIR = path.join(__dirname, "..", "post-pages");
 
 const SITE_URL = (process.env.SITE_URL || "https://example.github.io/church-feed").replace(/\/+$/, "");
-const FEED_TITLE = process.env.FEED_TITLE || "Church Announcements";
+const FEED_TITLE = process.env.FEED_TITLE || "";
 const FEED_DESCRIPTION = process.env.FEED_DESCRIPTION || "Latest announcements and posts.";
 const FEED_LANGUAGE = process.env.FEED_LANGUAGE || "en";
 
@@ -61,6 +62,45 @@ function readPosts() {
   return posts
     .filter(Boolean)
     .sort((a, b) => b.date - a.date);
+}
+
+function buildPostPageHtml(post) {
+  const htmlBody = marked.parse(post.body || "");
+  const imageTag = post.imageUrl
+    ? `<p><img src="${escapeXml(post.imageUrl)}" alt="${escapeXml(post.title || "")}" style="max-width:100%;height:auto;" /></p>`
+    : "";
+  const titleTag = post.title ? `<h1>${escapeXml(post.title)}</h1>` : "";
+
+  return `<!DOCTYPE html>
+<html lang="${escapeXml(FEED_LANGUAGE)}">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>${escapeXml(post.title || FEED_TITLE)}</title>
+</head>
+<body>
+${titleTag}
+${imageTag}
+${htmlBody}
+</body>
+</html>
+`;
+}
+
+// Posts without an explicit link (frontmatter "link") need somewhere real to
+// point to - otherwise the RSS item has no <link>, and some readers (e.g.
+// ChMeetings) fall back to using the <enclosure> image URL as the click
+// target instead. Generate a plain landing page for those posts so every
+// item gets a working, non-image link.
+function ensurePostLinks(posts) {
+  fs.rmSync(POST_PAGES_DIR, { recursive: true, force: true });
+
+  for (const post of posts) {
+    if (post.link) continue;
+    fs.mkdirSync(POST_PAGES_DIR, { recursive: true });
+    fs.writeFileSync(path.join(POST_PAGES_DIR, `${post.slug}.html`), buildPostPageHtml(post), "utf8");
+    post.link = `${SITE_URL}/p/${post.slug}.html`;
+  }
 }
 
 function buildItemXml(post) {
@@ -113,6 +153,7 @@ function buildFeedXml(posts) {
 
 function main() {
   const posts = readPosts();
+  ensurePostLinks(posts);
   const xml = buildFeedXml(posts);
   fs.writeFileSync(OUTPUT_FILE, xml, "utf8");
   console.log(`Wrote ${OUTPUT_FILE} with ${posts.length} post(s).`);
