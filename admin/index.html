@@ -353,6 +353,18 @@
     return res.json();
   }
 
+  // Finds a post slug that isn't already taken, so each submission always
+  // creates a new post instead of overwriting one with a matching date+title.
+  async function getUniqueSlug(baseSlug){
+    let candidate = baseSlug;
+    let n = 2;
+    while (await getFileSha(`posts/${candidate}.md`)) {
+      candidate = `${baseSlug}-${n}`;
+      n += 1;
+    }
+    return candidate;
+  }
+
   function getSettings(){
     return {
       owner: $('owner').value.trim(),
@@ -389,7 +401,7 @@
       const now = new Date();
       const iso = now.toISOString();
       const datePrefix = iso.slice(0, 10);
-      const slug = `${datePrefix}-${slugify(title)}`;
+      const slug = await getUniqueSlug(`${datePrefix}-${slugify(title)}`);
 
       let imageFileName = '';
       if (imageFile) {
