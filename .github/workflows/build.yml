@@ -1,0 +1,62 @@
+name: Build and deploy feed
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build feed.xml
+        run: node scripts/build-feed.js
+        env:
+          SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+          FEED_TITLE: "Church Announcements"
+          FEED_DESCRIPTION: "Latest announcements and posts."
+
+      - name: Assemble Pages site
+        run: |
+          mkdir -p dist/images
+          cp feed.xml dist/feed.xml
+          if [ -d posts/images ]; then cp -r posts/images/. dist/images/; fi
+          mkdir -p dist/admin
+          cp admin/index.html dist/admin/index.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
