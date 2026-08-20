@@ -44,19 +44,14 @@ function readPosts() {
     const { data, content } = matter(raw);
     const slug = file.replace(/\.md$/i, "");
 
-    if (!data.title) {
-      console.warn(`Skipping ${file}: missing "title" in frontmatter`);
-      return null;
-    }
-
     const date = data.date ? new Date(data.date) : new Date();
     const imageUrl = data.image ? `${SITE_URL}/images/${data.image}` : null;
 
     return {
       slug,
-      title: data.title,
+      title: data.title || null,
       date: isNaN(date.getTime()) ? new Date() : date,
-      link: data.link || `${SITE_URL}/#${slug}`,
+      link: data.link || null,
       image: data.image || null,
       imageUrl,
       body: content.trim(),
@@ -71,7 +66,7 @@ function readPosts() {
 function buildItemXml(post) {
   const htmlBody = marked.parse(post.body || "");
   const imageTag = post.imageUrl
-    ? `<p><img src="${escapeXml(post.imageUrl)}" alt="${escapeXml(post.title)}" /></p>`
+    ? `<p><img src="${escapeXml(post.imageUrl)}" alt="${escapeXml(post.title || "")}" /></p>`
     : "";
   const descriptionHtml = `${imageTag}${htmlBody}`;
 
@@ -83,10 +78,13 @@ function buildItemXml(post) {
       ? `<enclosure url="${escapeXml(post.imageUrl)}" type="${mime}" length="0" />`
       : "";
 
+  const titleTag = post.title ? `<title>${escapeXml(post.title)}</title>` : "";
+  const linkTag = post.link ? `<link>${escapeXml(post.link)}</link>` : "";
+
   return `
     <item>
-      <title>${escapeXml(post.title)}</title>
-      <link>${escapeXml(post.link)}</link>
+      ${titleTag}
+      ${linkTag}
       <guid isPermaLink="false">${escapeXml(post.slug)}</guid>
       <pubDate>${post.date.toUTCString()}</pubDate>
       <description><![CDATA[${descriptionHtml}]]></description>

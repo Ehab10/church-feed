@@ -214,8 +214,8 @@
 
   <form id="postForm" class="board-note">
     <div class="field">
-      <label for="title">Title</label>
-      <input type="text" id="title" required placeholder="Sunday service update" />
+      <label for="title">Title (optional)</label>
+      <input type="text" id="title" placeholder="Sunday service update" />
     </div>
 
     <div class="field">
@@ -388,8 +388,8 @@
     const link = $('link').value.trim();
     const imageFile = $('image').files[0];
 
-    if (!title || !body) {
-      showStatus('err', 'Title and body are required.');
+    if (!body) {
+      showStatus('err', 'Post body is required.');
       return;
     }
 
@@ -402,6 +402,7 @@
       const iso = now.toISOString();
       const datePrefix = iso.slice(0, 10);
       const slug = await getUniqueSlug(`${datePrefix}-${slugify(title)}`);
+      const commitLabel = title || slug;
 
       let imageFileName = '';
       if (imageFile) {
@@ -409,7 +410,7 @@
         const ext = (imageFile.name.split('.').pop() || 'jpg').toLowerCase();
         imageFileName = `${slug}.${ext}`;
         const base64 = await fileToBase64(imageFile);
-        await githubPut(`posts/images/${imageFileName}`, base64, `Add image for post: ${title}`);
+        await githubPut(`posts/images/${imageFileName}`, base64, `Add image for post: ${commitLabel}`);
       }
 
       showStatus('pending', 'Creating post…');
@@ -425,7 +426,7 @@
         '',
       ].join('\n');
 
-      await githubPut(`posts/${slug}.md`, toBase64(frontmatter), `Add post: ${title}`);
+      await githubPut(`posts/${slug}.md`, toBase64(frontmatter), `Add post: ${commitLabel}`);
 
       showStatus('ok', 'Post pinned. The feed will update in about a minute.');
       $('postForm').reset();
