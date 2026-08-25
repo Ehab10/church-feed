@@ -44,7 +44,7 @@ The admin form writes new posts straight to the repo using the GitHub API, so it
 
 1. GitHub → your avatar → **Settings** → **Developer settings** → **Personal access tokens** → **Fine-grained tokens** → **Generate new token**.
 2. **Repository access**: only select `church-feed`.
-3. **Permissions**: `Contents` → **Read and write**. Nothing else is needed.
+3. **Permissions**: `Contents` → **Read and write**. Also grant `Actions` → **Read-only** — the admin page uses it to tell when the feed-build workflow is running and pause saves/deletes until it finishes, avoiding a race where a post gets edited while the previous commit is still landing. Without it, saving still works, just without that guard.
 4. Generate, copy the token (starts with `github_pat_...`).
 
 Keep this token private — anyone with it can write to the repo. It's stored only in the browser's local storage on whichever device opens the admin form (not committed anywhere).
