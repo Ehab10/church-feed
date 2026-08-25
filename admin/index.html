@@ -171,6 +171,61 @@
 
   .file-name{ font-size:12px; color:#6b7a70; margin-top:6px; font-family:'IBM Plex Mono', monospace; }
 
+  .tabs{ display:flex; gap:8px; margin-bottom:24px; }
+  .tab-btn{
+    background:transparent;
+    border:1px solid rgba(199,154,58,0.35);
+    color: var(--paper);
+    padding: 9px 16px;
+  }
+  .tab-btn:hover{ background: rgba(199,154,58,0.12); }
+  .tab-btn.active{ background: var(--gold); color:#23291F; border-color: var(--gold); }
+
+  .btn-secondary{ background: transparent; border: 1px solid rgba(199,154,58,0.4); color: var(--paper); }
+  .btn-secondary:hover{ background: rgba(199,154,58,0.12); }
+  .btn-danger{ background: var(--err); color: #fff; }
+  .btn-danger:hover{ background: #c65a49; }
+
+  .muted{ color:#8A968D; font-size:13px; }
+
+  .edit-banner{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap: 12px;
+    background: rgba(199,154,58,0.12);
+    border: 1px solid rgba(199,154,58,0.35);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    margin-bottom: 18px;
+    font-size: 13px;
+  }
+  .edit-banner button{ padding: 6px 12px; font-size: 11px; flex-shrink:0; }
+
+  .manage-toolbar{ display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; gap:12px; }
+
+  .post-list{ display:flex; flex-direction:column; gap:10px; }
+  .post-item{
+    background: var(--panel);
+    border: 1px solid rgba(199,154,58,0.2);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    display:flex;
+    gap:12px;
+    align-items:flex-start;
+  }
+  .post-item img{ width:56px; height:56px; object-fit:cover; border-radius:2px; flex-shrink:0; background:var(--panel-2); }
+  .post-item .post-main{ flex:1; min-width:0; }
+  .post-item .post-title{ font-weight:600; margin:0 0 4px; color:var(--paper); }
+  .post-item .post-meta{ font-family:'IBM Plex Mono', monospace; font-size:11px; color:#9FAFA5; margin:0 0 6px; }
+  .post-item .post-excerpt{
+    font-size:13px; color:#B9C4BC; margin:0;
+    overflow:hidden; text-overflow:ellipsis;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  }
+  .post-item .post-actions{ display:flex; flex-direction:column; gap:8px; flex-shrink:0; }
+  .post-item .post-actions button{ padding:8px 12px; font-size:11px; }
+
   footer{
     margin-top: 30px;
     font-size: 12px;
@@ -212,32 +267,53 @@
     </div>
   </details>
 
-  <form id="postForm" class="board-note">
-    <div class="field">
-      <label for="title">Title (optional)</label>
-      <input type="text" id="title" placeholder="Sunday service update" />
+  <div class="tabs">
+    <button type="button" class="tab-btn active" id="tabNew">New Post</button>
+    <button type="button" class="tab-btn" id="tabManage">Manage Posts</button>
+  </div>
+
+  <div id="newView">
+    <div class="edit-banner" id="editBanner" style="display:none">
+      <span>Editing <strong id="editBannerSlug"></strong></span>
+      <button type="button" id="cancelEdit" class="btn-secondary">Cancel</button>
     </div>
 
-    <div class="field">
-      <label for="body">Post body</label>
-      <textarea id="body" required placeholder="What's happening? Markdown is supported."></textarea>
-    </div>
-
-    <div class="row">
+    <form id="postForm" class="board-note">
       <div class="field">
-        <label for="link">Link (optional)</label>
-        <input type="url" id="link" placeholder="https://..." />
+        <label for="title">Title (optional)</label>
+        <input type="text" id="title" placeholder="Sunday service update" />
       </div>
-      <div class="field">
-        <label for="image">Image (optional)</label>
-        <input type="file" id="image" accept="image/*" />
-        <div class="file-name" id="fileName"></div>
-      </div>
-    </div>
 
-    <button type="submit" id="submitBtn">Pin post</button>
-    <div class="status" id="status"></div>
-  </form>
+      <div class="field">
+        <label for="body">Post body</label>
+        <textarea id="body" required placeholder="What's happening? Markdown is supported."></textarea>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="link">Link (optional)</label>
+          <input type="url" id="link" placeholder="https://..." />
+        </div>
+        <div class="field">
+          <label for="image">Image (optional)</label>
+          <input type="file" id="image" accept="image/*" />
+          <div class="file-name" id="fileName"></div>
+        </div>
+      </div>
+
+      <button type="submit" id="submitBtn">Pin post</button>
+      <div class="status" id="status"></div>
+    </form>
+  </div>
+
+  <div id="manageView" style="display:none">
+    <div class="manage-toolbar">
+      <p class="muted" style="margin:0;">Posts live in this repo's <code>posts/</code> folder.</p>
+      <button type="button" id="refreshPosts" class="btn-secondary">Refresh</button>
+    </div>
+    <div id="postList" class="post-list"></div>
+    <div class="status" id="manageStatus"></div>
+  </div>
 
   <footer>Feed URL once deployed: <span id="feedUrlHint">https://&lt;owner&gt;.github.io/&lt;repo&gt;/feed.xml</span></footer>
 </div>
@@ -260,6 +336,24 @@
   if (!settings.owner || !settings.repo || !settings.token) {
     $('settingsPanel').open = true;
   }
+
+  // Non-null while the "New Post" form is editing an existing post rather
+  // than creating a new one. { slug, image, date }
+  let editing = null;
+
+  function switchView(view){
+    const isNew = view === 'new';
+    $('newView').style.display = isNew ? 'block' : 'none';
+    $('manageView').style.display = isNew ? 'none' : 'block';
+    $('tabNew').classList.toggle('active', isNew);
+    $('tabManage').classList.toggle('active', !isNew);
+    if (!isNew) refreshPostList();
+  }
+
+  $('tabNew').addEventListener('click', () => switchView('new'));
+  $('tabManage').addEventListener('click', () => switchView('manage'));
+  $('refreshPosts').addEventListener('click', refreshPostList);
+  $('cancelEdit').addEventListener('click', cancelEdit);
 
   function updateFeedHint(){
     const o = $('owner').value.trim() || '<owner>';
@@ -374,6 +468,201 @@
     };
   }
 
+  async function githubGetDir(dirPath){
+    const { owner, repo, branch, token } = getSettings();
+    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${dirPath}?ref=${encodeURIComponent(branch)}`;
+    const headers = { 'Accept': 'application/vnd.github+json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(url, { headers });
+    if (res.status === 404) return [];
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.message || `GitHub API error (${res.status})`);
+    }
+    return res.json();
+  }
+
+  async function githubDelete(path, sha, message){
+    const { owner, repo, branch, token } = getSettings();
+    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+    const res = await fetch(url, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github+json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ message, sha, branch }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.message || `GitHub API error (${res.status})`);
+    }
+    return res.json();
+  }
+
+  // Parses the frontmatter this same form writes (JSON-encoded string values,
+  // a bare ISO date) — not a general-purpose YAML parser.
+  function parseFrontmatter(raw){
+    const match = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+    if (!match) return { data: {}, body: raw.trim() };
+    const [, fm, body] = match;
+    const data = {};
+    fm.split('\n').forEach((line) => {
+      const idx = line.indexOf(':');
+      if (idx === -1) return;
+      const key = line.slice(0, idx).trim();
+      const rawValue = line.slice(idx + 1).trim();
+      try {
+        data[key] = JSON.parse(rawValue);
+      } catch {
+        data[key] = rawValue;
+      }
+    });
+    return { data, body: body.trim() };
+  }
+
+  function escapeHtml(str){
+    return String(str).replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+  }
+
+  function excerpt(body){
+    return (body || '').replace(/\s+/g, ' ').trim().slice(0, 140);
+  }
+
+  async function loadPosts(){
+    const files = await githubGetDir('posts');
+    const mdFiles = files.filter((f) => f.type === 'file' && f.name.toLowerCase().endsWith('.md'));
+    const posts = await Promise.all(mdFiles.map(async (f) => {
+      const raw = await fetch(f.download_url).then((r) => r.text());
+      const { data, body } = parseFrontmatter(raw);
+      const dateRaw = data.date || '';
+      const date = dateRaw ? new Date(dateRaw) : null;
+      return {
+        slug: f.name.replace(/\.md$/i, ''),
+        sha: f.sha,
+        title: data.title || '',
+        link: data.link || '',
+        image: data.image || '',
+        dateRaw,
+        date: date && !isNaN(date.getTime()) ? date : null,
+        body,
+      };
+    }));
+    posts.sort((a, b) => (b.date || 0) - (a.date || 0));
+    return posts;
+  }
+
+  function renderPostList(posts){
+    const container = $('postList');
+    if (!posts.length) {
+      container.innerHTML = '<p class="muted">No posts yet.</p>';
+      return;
+    }
+    const { owner, repo, branch } = getSettings();
+    container.innerHTML = posts.map((p) => {
+      const dateStr = p.date
+        ? p.date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+        : '';
+      const imgSrc = p.image
+        ? `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/posts/images/${encodeURIComponent(p.image)}`
+        : '';
+      return `
+        <div class="post-item" data-slug="${escapeHtml(p.slug)}">
+          ${imgSrc ? `<img src="${imgSrc}" alt="" />` : ''}
+          <div class="post-main">
+            <p class="post-title">${escapeHtml(p.title || p.slug)}</p>
+            <p class="post-meta">${escapeHtml(dateStr)}${dateStr ? ' · ' : ''}${escapeHtml(p.slug)}</p>
+            <p class="post-excerpt">${escapeHtml(excerpt(p.body))}</p>
+          </div>
+          <div class="post-actions">
+            <button type="button" class="btn-secondary" data-action="edit">Edit</button>
+            <button type="button" class="btn-danger" data-action="delete">Delete</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    container.querySelectorAll('.post-item').forEach((el) => {
+      const slug = el.getAttribute('data-slug');
+      const post = posts.find((p) => p.slug === slug);
+      el.querySelector('[data-action="edit"]').addEventListener('click', () => startEdit(post));
+      el.querySelector('[data-action="delete"]').addEventListener('click', () => removePost(post));
+    });
+  }
+
+  function showManageStatus(kind, msg){
+    const el = $('manageStatus');
+    el.className = 'status' + (kind ? ' ' + kind : '');
+    el.textContent = msg || '';
+  }
+
+  async function refreshPostList(){
+    const { owner, repo } = getSettings();
+    if (!owner || !repo) {
+      showManageStatus('err', 'Fill in connection settings first.');
+      $('settingsPanel').open = true;
+      return;
+    }
+    showManageStatus('pending', 'Loading posts…');
+    try {
+      const posts = await loadPosts();
+      renderPostList(posts);
+      showManageStatus('', '');
+    } catch (err) {
+      showManageStatus('err', err.message || 'Failed to load posts.');
+    }
+  }
+
+  function startEdit(post){
+    editing = { slug: post.slug, image: post.image, date: post.dateRaw };
+    $('title').value = post.title || '';
+    $('body').value = post.body || '';
+    $('link').value = post.link || '';
+    $('image').value = '';
+    $('fileName').textContent = post.image ? `Current image: ${post.image} (choose a file to replace it)` : '';
+    $('editBanner').style.display = 'flex';
+    $('editBannerSlug').textContent = post.slug;
+    $('submitBtn').textContent = 'Update post';
+    showStatus('', '');
+    switchView('new');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function cancelEdit(){
+    editing = null;
+    $('postForm').reset();
+    $('fileName').textContent = '';
+    $('editBanner').style.display = 'none';
+    $('submitBtn').textContent = 'Pin post';
+  }
+
+  async function removePost(post){
+    const { owner, repo, token } = getSettings();
+    if (!owner || !repo || !token) {
+      showManageStatus('err', 'Fill in connection settings first.');
+      $('settingsPanel').open = true;
+      return;
+    }
+    if (!confirm(`Delete post "${post.title || post.slug}"? This cannot be undone.`)) return;
+    showManageStatus('pending', 'Deleting…');
+    try {
+      await githubDelete(`posts/${post.slug}.md`, post.sha, `Delete post: ${post.title || post.slug}`);
+      if (post.image) {
+        const imageSha = await getFileSha(`posts/images/${post.image}`);
+        if (imageSha) {
+          await githubDelete(`posts/images/${post.image}`, imageSha, `Delete image for post: ${post.title || post.slug}`);
+        }
+      }
+      showManageStatus('ok', 'Post deleted.');
+      if (editing && editing.slug === post.slug) cancelEdit();
+      await refreshPostList();
+    } catch (err) {
+      showManageStatus('err', err.message || 'Failed to delete post.');
+    }
+  }
+
   $('postForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const { owner, repo, token } = getSettings();
@@ -395,25 +684,39 @@
 
     const submitBtn = $('submitBtn');
     submitBtn.disabled = true;
-    showStatus('pending', 'Pinning post…');
+    const isEditing = !!editing;
+    showStatus('pending', isEditing ? 'Updating post…' : 'Pinning post…');
 
     try {
-      const now = new Date();
-      const iso = now.toISOString();
-      const datePrefix = iso.slice(0, 10);
-      const slug = await getUniqueSlug(`${datePrefix}-${slugify(title)}`);
+      let slug, iso;
+      if (isEditing) {
+        slug = editing.slug;
+        iso = editing.date || new Date().toISOString();
+      } else {
+        iso = new Date().toISOString();
+        const datePrefix = iso.slice(0, 10);
+        slug = await getUniqueSlug(`${datePrefix}-${slugify(title)}`);
+      }
       const commitLabel = title || slug;
+      const verb = isEditing ? 'Update' : 'Add';
 
-      let imageFileName = '';
+      let imageFileName = isEditing ? (editing.image || '') : '';
       if (imageFile) {
         showStatus('pending', 'Uploading image…');
         const ext = (imageFile.name.split('.').pop() || 'jpg').toLowerCase();
-        imageFileName = `${slug}.${ext}`;
+        const newImageName = `${slug}.${ext}`;
         const base64 = await fileToBase64(imageFile);
-        await githubPut(`posts/images/${imageFileName}`, base64, `Add image for post: ${commitLabel}`);
+        await githubPut(`posts/images/${newImageName}`, base64, `${verb} image for post: ${commitLabel}`);
+        if (isEditing && editing.image && editing.image !== newImageName) {
+          const oldImageSha = await getFileSha(`posts/images/${editing.image}`);
+          if (oldImageSha) {
+            await githubDelete(`posts/images/${editing.image}`, oldImageSha, `Remove old image for post: ${commitLabel}`);
+          }
+        }
+        imageFileName = newImageName;
       }
 
-      showStatus('pending', 'Creating post…');
+      showStatus('pending', isEditing ? 'Updating post…' : 'Creating post…');
       const frontmatter = [
         '---',
         `title: ${JSON.stringify(title)}`,
@@ -426,11 +729,18 @@
         '',
       ].join('\n');
 
-      await githubPut(`posts/${slug}.md`, toBase64(frontmatter), `Add post: ${commitLabel}`);
+      await githubPut(`posts/${slug}.md`, toBase64(frontmatter), `${verb} post: ${commitLabel}`);
 
-      showStatus('ok', 'Post pinned. The feed will update in about a minute.');
+      showStatus('ok', isEditing ? 'Post updated.' : 'Post pinned. The feed will update in about a minute.');
       $('postForm').reset();
       $('fileName').textContent = '';
+      $('editBanner').style.display = 'none';
+      submitBtn.textContent = 'Pin post';
+      const wasEditing = isEditing;
+      editing = null;
+      if (wasEditing) {
+        switchView('manage');
+      }
     } catch (err) {
       showStatus('err', err.message || 'Something went wrong.');
     } finally {

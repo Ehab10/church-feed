@@ -62,6 +62,8 @@ Click **Save settings**, then fill in a post (title, body, optional link, option
 
 Delete the example post at `posts/2026-08-20-welcome.md` (or via `git rm` + push) once you're adding real ones — it's only there so the first build has something to render.
 
+Switch to the **Manage Posts** tab to see every post in the repo, edit one (loads it back into the form; saving commits to the same file instead of creating a new post), or delete one (also removes its image, if it has one). Editing and deleting need the same token as pinning a post; viewing the list works without one.
+
 ## 5. Point ChMeetings at the feed
 
 In ChMeetings' RSS pull-in settings, use:
@@ -75,7 +77,7 @@ https://<your-username>.github.io/church-feed/feed.xml
 ```
 posts/*.md          one file per post — frontmatter (title, date, link, image) + Markdown body
 posts/images/        images uploaded through the admin form
-admin/index.html      the "pin a post" form (writes to the repo via the GitHub API)
+admin/index.html      "pin a post" form plus a Manage Posts tab to view/edit/delete posts (all via the GitHub API)
 scripts/build-feed.js  reads /posts, generates feed.xml
 .github/workflows/build.yml  runs the build and deploys to Pages on every push
 ```
