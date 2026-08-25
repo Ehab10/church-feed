@@ -208,26 +208,42 @@
     display:none;
     align-items:center;
     gap:10px;
-    background: rgba(199,154,58,0.14);
-    border: 1px solid var(--gold);
     border-radius: var(--radius);
     padding: 10px 14px;
     margin-bottom: 20px;
     font-size: 13px;
     font-family: 'IBM Plex Mono', monospace;
-    color: var(--gold);
   }
   .build-status a{ color: inherit; }
-  .build-dot{
-    width:8px; height:8px; border-radius:50%;
+  .build-dot{ width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+
+  .build-status.running{
+    background: rgba(199,154,58,0.14);
+    border: 1px solid var(--gold);
+    color: var(--gold);
+  }
+  .build-status.running .build-dot{
     background: var(--gold);
-    flex-shrink:0;
     animation: build-pulse 1.2s ease-in-out infinite;
   }
   @keyframes build-pulse{
     0%, 100% { opacity: 1; transform: scale(1); }
     50% { opacity: 0.35; transform: scale(0.7); }
   }
+
+  .build-status.idle{
+    background: rgba(76,122,85,0.10);
+    border: 1px solid rgba(76,122,85,0.35);
+    color: #9FD3A9;
+  }
+  .build-status.idle .build-dot{ background: var(--ok); }
+
+  .build-status.unknown{
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.14);
+    color: #9FAFA5;
+  }
+  .build-status.unknown .build-dot{ background: #9FAFA5; }
 
   .post-list{ display:flex; flex-direction:column; gap:10px; }
   .post-item{
@@ -454,13 +470,30 @@
     return data.sha || null;
   }
 
-  // Retries once on a 409 (stale sha) — a cached or just-superseded sha read
-  // before the PUT is common enough to be worth a single automatic retry.
-  async function githubPut(path, base64Content, message){
+  function sleep(ms){
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // A 409 here means the sha we read is already out of date. This isn't
+  // just a cache artifact (sha reads already bypass the cache) - GitHub's
+  // Contents API can lag behind the true HEAD for a couple of seconds after
+  // a commit, so an instant retry can hit the same stale read twice. Back
+  // off between attempts to give that window time to close.
+  async function withShaRetry(attempt, onRetry){
+    let res = await attempt();
+    for (let i = 0; i < 3 && res.status === 409; i++) {
+      onRetry?.(i + 1, 3);
+      await sleep(1500 * (i + 1));
+      res = await attempt();
+    }
+    return res;
+  }
+
+  async function githubPut(path, base64Content, message, onRetry){
     const { owner, repo, branch, token } = getSettings();
     const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
 
-    async function attempt(){
+    const res = await withShaRetry(async () => {
       const sha = await getFileSha(path);
       return fetch(url, {
         method: 'PUT',
@@ -476,10 +509,7 @@
           ...(sha ? { sha } : {}),
         }),
       });
-    }
-
-    let res = await attempt();
-    if (res.status === 409) res = await attempt();
+    }, onRetry);
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new Error(body.message || `GitHub API error (${res.status})`);
@@ -514,25 +544,34 @@
   // on the next save — so mutating actions are paused while one is active.
   let buildRunning = false;
 
+  // Returns { ok: false, reason: 'unconfigured' } before settings are filled
+  // in, { ok: false, reason: 'unavailable' } if the check itself couldn't be
+  // performed (commonly a token missing "Actions: Read", or a network
+  // error), or { ok: true, active: [...] } on a successful check. Kept
+  // distinct from a plain null so the banner can tell "nothing running" from
+  // "couldn't check" instead of going silent in both cases.
   async function fetchActiveWorkflowRuns(){
     const { owner, repo, branch, token } = getSettings();
-    if (!owner || !repo || !token) return null;
+    if (!owner || !repo || !token) return { ok: false, reason: 'unconfigured' };
     const url = `https://api.github.com/repos/${owner}/${repo}/actions/runs?branch=${encodeURIComponent(branch)}&per_page=10`;
-    const res = await fetch(url, {
-      cache: 'no-store',
-      headers: {
-        'Accept': 'application/vnd.github+json',
-        'Authorization': `Bearer ${token}`,
-      },
-    });
-    // A token without the "Actions: Read" permission (or a repo/branch that
-    // doesn't resolve) gets a 403/404 here — fail open rather than block
-    // saving over a check we can't actually perform.
-    if (!res.ok) return null;
+    let res;
+    try {
+      res = await fetch(url, {
+        cache: 'no-store',
+        headers: {
+          'Accept': 'application/vnd.github+json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+    } catch {
+      return { ok: false, reason: 'unavailable' };
+    }
+    if (!res.ok) return { ok: false, reason: 'unavailable' };
     const data = await res.json();
-    return (data.workflow_runs || []).filter((r) =>
+    const active = (data.workflow_runs || []).filter((r) =>
       ['queued', 'in_progress', 'waiting', 'requested'].includes(r.status)
     );
+    return { ok: true, active };
   }
 
   function applyBuildLock(running){
@@ -541,25 +580,38 @@
     document.querySelectorAll('#postList [data-action]').forEach((btn) => { btn.disabled = running; });
   }
 
-  async function refreshBuildStatus(){
-    const active = await fetchActiveWorkflowRuns();
+  function setBuildBanner(state, text, linkUrl){
     const banner = $('buildStatus');
-    if (active === null) {
-      banner.style.display = 'none';
+    banner.className = `build-status ${state}`;
+    banner.style.display = 'flex';
+    $('buildStatusText').innerHTML = linkUrl
+      ? `${escapeHtml(text)} <a href="${escapeHtml(linkUrl)}" target="_blank" rel="noopener">View run</a>`
+      : escapeHtml(text);
+  }
+
+  async function refreshBuildStatus(){
+    const result = await fetchActiveWorkflowRuns();
+
+    if (!result.ok) {
+      if (result.reason === 'unconfigured') {
+        $('buildStatus').style.display = 'none';
+        applyBuildLock(false);
+        return false;
+      }
+      setBuildBanner('unknown', "Build status unavailable — check that the token has \"Actions: Read\" access.");
       applyBuildLock(false);
       return false;
     }
-    if (active.length > 0) {
-      const run = active[0];
+
+    if (result.active.length > 0) {
+      const run = result.active[0];
       const label = run.status === 'queued' || run.status === 'requested' || run.status === 'waiting' ? 'queued' : 'running';
-      banner.style.display = 'flex';
-      $('buildStatusText').innerHTML =
-        `Feed build ${label} — updates are paused until it finishes. ` +
-        `<a href="${escapeHtml(run.html_url)}" target="_blank" rel="noopener">View run</a>`;
+      setBuildBanner('running', `Feed build ${label} — updates are paused until it finishes.`, run.html_url);
       applyBuildLock(true);
       return true;
     }
-    banner.style.display = 'none';
+
+    setBuildBanner('idle', 'No feed build in progress — safe to save.');
     applyBuildLock(false);
     return false;
   }
@@ -578,13 +630,16 @@
     return res.json();
   }
 
-  // Retries once with a freshly-fetched sha on a 409 (stale sha) — the sha
-  // passed in may come from an earlier directory listing.
-  async function githubDelete(path, sha, message){
+  // The sha passed in may come from an earlier directory listing, so on a
+  // 409 (see withShaRetry above) each retry re-reads it fresh.
+  async function githubDelete(path, sha, message, onRetry){
     const { owner, repo, branch, token } = getSettings();
     const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+    let firstAttempt = true;
 
-    async function attempt(shaToUse){
+    const res = await withShaRetry(async () => {
+      const shaToUse = firstAttempt ? sha : ((await getFileSha(path)) || sha);
+      firstAttempt = false;
       return fetch(url, {
         method: 'DELETE',
         headers: {
@@ -594,13 +649,7 @@
         },
         body: JSON.stringify({ message, sha: shaToUse, branch }),
       });
-    }
-
-    let res = await attempt(sha);
-    if (res.status === 409) {
-      const freshSha = await getFileSha(path);
-      if (freshSha) res = await attempt(freshSha);
-    }
+    }, onRetry);
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new Error(body.message || `GitHub API error (${res.status})`);
@@ -758,12 +807,13 @@
     }
     if (!confirm(`Delete post "${post.title || post.slug}"? This cannot be undone.`)) return;
     showManageStatus('pending', 'Deleting…');
+    const onRetry = (n, max) => showManageStatus('pending', `Deleting… GitHub hasn't caught up yet, retrying (${n}/${max})…`);
     try {
-      await githubDelete(`posts/${post.slug}.md`, post.sha, `Delete post: ${post.title || post.slug}`);
+      await githubDelete(`posts/${post.slug}.md`, post.sha, `Delete post: ${post.title || post.slug}`, onRetry);
       if (post.image) {
         const imageSha = await getFileSha(`posts/images/${post.image}`);
         if (imageSha) {
-          await githubDelete(`posts/images/${post.image}`, imageSha, `Delete image for post: ${post.title || post.slug}`);
+          await githubDelete(`posts/images/${post.image}`, imageSha, `Delete image for post: ${post.title || post.slug}`, onRetry);
         }
       }
       showManageStatus('ok', 'Post deleted.');
@@ -816,13 +866,16 @@
       const commitLabel = title || slug;
       const verb = isEditing ? 'Update' : 'Add';
 
+      const onImageRetry = (n, max) => showStatus('pending', `Uploading image… GitHub hasn't caught up yet, retrying (${n}/${max})…`);
+      const onPostRetry = (n, max) => showStatus('pending', `${isEditing ? 'Updating' : 'Creating'} post… GitHub hasn't caught up yet, retrying (${n}/${max})…`);
+
       let imageFileName = isEditing ? (editing.image || '') : '';
       if (imageFile) {
         showStatus('pending', 'Uploading image…');
         const ext = (imageFile.name.split('.').pop() || 'jpg').toLowerCase();
         const newImageName = `${slug}.${ext}`;
         const base64 = await fileToBase64(imageFile);
-        await githubPut(`posts/images/${newImageName}`, base64, `${verb} image for post: ${commitLabel}`);
+        await githubPut(`posts/images/${newImageName}`, base64, `${verb} image for post: ${commitLabel}`, onImageRetry);
         if (isEditing && editing.image && editing.image !== newImageName) {
           const oldImageSha = await getFileSha(`posts/images/${editing.image}`);
           if (oldImageSha) {
@@ -845,7 +898,7 @@
         '',
       ].join('\n');
 
-      await githubPut(`posts/${slug}.md`, toBase64(frontmatter), `${verb} post: ${commitLabel}`);
+      await githubPut(`posts/${slug}.md`, toBase64(frontmatter), `${verb} post: ${commitLabel}`, onPostRetry);
 
       showStatus('ok', isEditing ? 'Post updated.' : 'Post pinned. The feed will update in about a minute.');
       $('postForm').reset();
