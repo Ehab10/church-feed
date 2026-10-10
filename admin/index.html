@@ -169,6 +169,10 @@
   .status.err{ display:block; background: rgba(178,75,60,0.18); color: #F3AFA2; border: 1px solid rgba(178,75,60,0.4); }
   .status.pending{ display:block; background: rgba(199,154,58,0.15); color: var(--gold); border: 1px solid rgba(199,154,58,0.35); }
 
+  .toggle{ display:flex; align-items:center; gap:10px; margin: 0 0 18px; cursor:pointer; text-transform:none; letter-spacing:0; font-family:'IBM Plex Sans', sans-serif; font-size:14px; color:#23291F; }
+  .toggle input{ width:18px; height:18px; accent-color: var(--gold-dim); margin:0; }
+  .toggle + .hint{ margin:-12px 0 18px; color:#6b7a70; }
+
   .file-name{ font-size:12px; color:#6b7a70; margin-top:6px; font-family:'IBM Plex Mono', monospace; }
 
   .tabs{ display:flex; gap:8px; margin-bottom:24px; }
@@ -346,6 +350,12 @@
           <div class="file-name" id="fileName"></div>
         </div>
       </div>
+
+      <label class="toggle" for="notify">
+        <input type="checkbox" id="notify" />
+        Send a notification to the app
+      </label>
+      <p class="hint">Pushes this post to everyone's phone and opens the app's news tab. Sent once per post, within a week of posting — editing it later won't send it again.</p>
 
       <button type="submit" id="submitBtn">Pin post</button>
       <div class="status" id="status"></div>
@@ -702,6 +712,7 @@
         title: data.title || '',
         link: data.link || '',
         image: data.image || '',
+        notify: data.notify === true,
         dateRaw,
         date: date && !isNaN(date.getTime()) ? date : null,
         body,
@@ -776,6 +787,7 @@
     $('title').value = post.title || '';
     $('body').value = post.body || '';
     $('link').value = post.link || '';
+    $('notify').checked = !!post.notify;
     $('image').value = '';
     $('fileName').textContent = post.image ? `Current image: ${post.image} (choose a file to replace it)` : '';
     $('editBanner').style.display = 'flex';
@@ -836,6 +848,7 @@
     const title = $('title').value.trim();
     const body = $('body').value.trim();
     const link = $('link').value.trim();
+    const notify = $('notify').checked;
     const imageFile = $('image').files[0];
 
     if (!body) {
@@ -892,6 +905,7 @@
         `date: ${iso}`,
         `link: ${JSON.stringify(link || '')}`,
         `image: ${JSON.stringify(imageFileName)}`,
+        ...(notify ? ['notify: true'] : []),
         '---',
         '',
         body,

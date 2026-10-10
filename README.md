@@ -72,10 +72,24 @@ In ChMeetings' RSS pull-in settings, use:
 https://<your-username>.github.io/church-feed/feed.xml
 ```
 
+## 6. Push notifications to the church app (optional)
+
+Ticking **Send a notification to the app** on a post saves `notify: true` in its frontmatter, which the feed carries as `<churchfeed:notify>true</churchfeed:notify>`. After each deploy, the workflow's `notify-app` job calls the church app, which pushes every flagged post it hasn't pushed before to all devices. Tapping the notification opens the app's news tab, not its notifications inbox. A post is only pushed within a week of its date, and only once — editing it later won't send it again.
+
+To turn it on:
+
+1. Generate a random secret, e.g. `openssl rand -hex 32`.
+2. Store it in the church app's SSM secrets as `NEWS_WEBHOOK_SECRET` (next to its other secrets, e.g. `aws ssm put-parameter --type SecureString --name <secrets path>/NEWS_WEBHOOK_SECRET --value <secret>`). The API reads it on its next cold start.
+3. In this repo: **Settings → Secrets and variables → Actions**
+   - **Secrets** → `NEWS_NOTIFY_SECRET` = the same secret
+   - **Variables** → `NEWS_NOTIFY_URL` = `https://<app domain>/api/news/notify`
+
+Until `NEWS_NOTIFY_URL` is set, the job is skipped and the toggle does nothing.
+
 ## How it's structured
 
 ```
-posts/*.md          one file per post — frontmatter (title, date, link, image) + Markdown body
+posts/*.md          one file per post — frontmatter (title, date, link, image, notify) + Markdown body
 posts/images/        images uploaded through the admin form
 admin/index.html      "pin a post" form plus a Manage Posts tab to view/edit/delete posts (all via the GitHub API)
 scripts/build-feed.js  reads /posts, generates feed.xml

@@ -46,6 +46,7 @@ function readPosts() {
       link: data.link || null,
       image: data.image || null,
       imageUrl,
+      notify: data.notify === true,
       body: content.trim(),
     };
   });
@@ -64,6 +65,9 @@ function buildItemXml(post) {
 
   const titleTag = post.title ? `<title>${escapeXml(post.title)}</title>` : "";
   const linkTag = post.link ? `<link>${escapeXml(post.link)}</link>` : "";
+  // Read by the church app, which pushes a notification for each flagged
+  // post (once). Namespaced, so other readers like ChMeetings ignore it.
+  const notifyTag = post.notify ? "<churchfeed:notify>true</churchfeed:notify>" : "";
 
   return `
     <item>
@@ -71,6 +75,7 @@ function buildItemXml(post) {
       ${linkTag}
       <guid isPermaLink="false">${escapeXml(post.slug)}</guid>
       <pubDate>${post.date.toUTCString()}</pubDate>
+      ${notifyTag}
       <description><![CDATA[${descriptionHtml}]]></description>
     </item>`.trim();
 }
@@ -80,7 +85,7 @@ function buildFeedXml(posts) {
   const lastBuildDate = new Date().toUTCString();
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:churchfeed="urn:church-feed">
   <channel>
     <title>${escapeXml(FEED_TITLE)}</title>
     <link>${escapeXml(SITE_URL)}</link>
