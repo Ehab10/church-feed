@@ -60,3 +60,18 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  # Tells the church app the new feed is live, so it can push posts saved
+  # with "Send a notification to the app" on. Safe to run on every deploy:
+  # the app re-reads the feed and pushes each post only once. Skipped until
+  # the NEWS_NOTIFY_URL variable is set (see README).
+  notify-app:
+    needs: deploy
+    if: ${{ vars.NEWS_NOTIFY_URL != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify church app
+        run: curl -fsS --retry 3 --retry-all-errors -X POST -H "Authorization: Bearer $SECRET" "$URL"
+        env:
+          URL: ${{ vars.NEWS_NOTIFY_URL }}
+          SECRET: ${{ secrets.NEWS_NOTIFY_SECRET }}
